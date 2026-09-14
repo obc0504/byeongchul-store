@@ -24,4 +24,20 @@ async function getProductOrderDetails(productOrderIds) {
   return response.data;
 }
 
-module.exports = { getChangedProductOrderIds, getProductOrderDetails };
+// productOrderIds가 300건을 넘으면 300건 단위로 나눠 호출한 뒤 결과를 하나로 합침
+async function getProductOrderDetailsBatched(productOrderIds) {
+  const BATCH_SIZE = 300;
+  const allItems = [];
+  for (let i = 0; i < productOrderIds.length; i += BATCH_SIZE) {
+    const batch = productOrderIds.slice(i, i + BATCH_SIZE);
+    const result = await getProductOrderDetails(batch);
+    allItems.push(...(result.data || []));
+  }
+  return { data: allItems };
+}
+
+module.exports = {
+  getChangedProductOrderIds,
+  getProductOrderDetails,
+  getProductOrderDetailsBatched,
+};

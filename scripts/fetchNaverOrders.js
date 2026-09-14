@@ -1,60 +1,74 @@
 require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
-const { getChangedProductOrderIds, getProductOrderDetails } = require('../src/naver/orders');
+const {
+  getChangedProductOrderIds,
+  getProductOrderDetailsBatched,
+} = require('../src/naver/orders');
 const { mapOrdersToRows, CSV_COLUMNS } = require('../src/naver/mapOrdersToRows');
 const { writeCsv } = require('../src/lib/csv');
+const {
+  toKstIso,
+  parseKstDateStart,
+  parseKstDateEnd,
+  splitInto24hChunks,
+} = require('../src/lib/dateRange');
 
-function toKstIso(date) {
-  // Date는 내부적으로 UTC 기준이라, KST 벽시계 값을 만들기 위해 9시간을 더한 뒤
-  // UTC getter로 읽어내는 방식으로 변환한다 (그냥 'Z'를 '+09:00'으로 바꾸면 9시간 오차 발생).
-  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-  const pad = (n, len = 2) => String(n).padStart(len, '0');
-  const yyyy = kst.getUTCFullYear();
-  const MM = pad(kst.getUTCMonth() + 1);
-  const dd = pad(kst.getUTCDate());
-  const HH = pad(kst.getUTCHours());
-  const mm = pad(kst.getUTCMinutes());
-  const ss = pad(kst.getUTCSeconds());
-  const SSS = pad(kst.getUTCMilliseconds(), 3);
-  return `${yyyy}-${MM}-${dd}T${HH}:${mm}:${ss}.${SSS}+09:00`;
+// 사용법:
+//   node scripts/fetchNaverOrders.js                        -> 최근 24시간
+//   node scripts/fetchNaverOrders.js 2026-09-01 2026-09-14   -> 해당 기간 전체 (자동으로 24시간 단위 분할 조회)
+function resolveDateRange(argv) {
+  const [, , fromArg, toArg] = argv;
+  if (!fromArg) {
+    const to = new Date();
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+    return { from, to };
+  }
+  const from = parseKstDateStart(fromArg);
+  const to = toArg ? parseKstDateEnd(toArg) : parseKstDateEnd(fromArg);
+  return { from, to };
 }
 
 async function main() {
-  const to = new Date();
-  const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  const { from, to } = resolveDateRange(process.argv);
+  console.log(`조회 범위(KST): ${toKstIso(from)} ~ ${toKstIso(to)}`);
 
-  console.log(`조회 범위: ${from.toISOString()} ~ ${to.toISOString()}`);
+  const chunks = splitInto24hChunks(from, to);
+  console.log(`24시간 단위로 ${chunks.length}회 분할 조회합니다.`);
 
-  const changed = await getChangedProductOrderIds({
-    from: toKstIso(from),
-    to: toKstIso(to),
-  });
+  const productOrderIdSet = new Set();
+  for (const [chunkFrom, chunkTo] of chunks) {
+    const changed = await getChangedProductOrderIds({
+      from: toKstIso(chunkFrom),
+      to: toKstIso(chunkTo),
+    });
+    (changed.data?.lastChangeStatuses || []).forEach((item) =>
+      productOrderIdSet.add(item.productOrderId)
+    );
+  }
 
-  const productOrderIds = (changed.data?.lastChangeStatuses || []).map(
-    (item) => item.productOrderId
-  );
-
-  console.log(`변경된 상품주문 건수: ${productOrderIds.length}`);
+  const productOrderIds = [...productOrderIdSet];
+  console.log(`변경된 상품주문 건수(중복 제거): ${productOrderIds.length}`);
 
   if (productOrderIds.length === 0) {
     console.log('변경된 주문이 없습니다.');
     return;
   }
 
-  const details = await getProductOrderDetails(productOrderIds);
+  const details = await getProductOrderDetailsBatched(productOrderIds);
 
   const outDir = path.join(__dirname, '..', 'output');
   fs.mkdirSync(outDir, { recursive: true });
-  const rawPath = path.join(outDir, `naver-orders-raw-${Date.now()}.json`);
-  fs.writeFileSync(rawPath, JSON.stringify(details, null, 2), 'utf-8');
 
+  const rangeLabel = `${toKstIso(from).slice(0, 10)}_${toKstIso(to).slice(0, 10)}`;
+
+  const rawPath = path.join(outDir, `naver-orders-raw-${rangeLabel}-${Date.now()}.json`);
+  fs.writeFileSync(rawPath, JSON.stringify(details, null, 2), 'utf-8');
   console.log(`원본 응답 저장 완료: ${rawPath}`);
 
   const rows = mapOrdersToRows(details);
-  const csvPath = path.join(outDir, `naver-orders-${Date.now()}.csv`);
+  const csvPath = path.join(outDir, `naver-orders-${rangeLabel}-${Date.now()}.csv`);
   writeCsv(csvPath, rows, CSV_COLUMNS);
-
   console.log(`CSV 저장 완료: ${csvPath} (${rows.length}건)`);
 }
 

@@ -1,4 +1,4 @@
-const { naverRequest } = require('./client');
+const { naverRequest, sleep } = require('./client');
 
 // 네이버 API 제약: lastChangedFrom ~ lastChangedTo 범위는 최대 24시간까지만 조회 가능
 async function getChangedProductOrderIds({ from, to, lastChangedType }) {
@@ -32,6 +32,9 @@ async function getProductOrderDetailsBatched(productOrderIds) {
     const batch = productOrderIds.slice(i, i + BATCH_SIZE);
     const result = await getProductOrderDetails(batch);
     allItems.push(...(result.data || []));
+    if (i + BATCH_SIZE < productOrderIds.length) {
+      await sleep(300);
+    }
   }
   return { data: allItems };
 }

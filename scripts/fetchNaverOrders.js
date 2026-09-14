@@ -6,6 +6,7 @@ const {
   getProductOrderDetailsBatched,
 } = require('../src/naver/orders');
 const { mapOrdersToRows, CSV_COLUMNS } = require('../src/naver/mapOrdersToRows');
+const { sleep } = require('../src/naver/client');
 const { writeCsv } = require('../src/lib/csv');
 const {
   toKstIso,
@@ -37,7 +38,8 @@ async function main() {
   console.log(`24시간 단위로 ${chunks.length}회 분할 조회합니다.`);
 
   const productOrderIdSet = new Set();
-  for (const [chunkFrom, chunkTo] of chunks) {
+  for (let i = 0; i < chunks.length; i += 1) {
+    const [chunkFrom, chunkTo] = chunks[i];
     const changed = await getChangedProductOrderIds({
       from: toKstIso(chunkFrom),
       to: toKstIso(chunkTo),
@@ -45,6 +47,10 @@ async function main() {
     (changed.data?.lastChangeStatuses || []).forEach((item) =>
       productOrderIdSet.add(item.productOrderId)
     );
+    console.log(`  [${i + 1}/${chunks.length}] 조회 완료`);
+    if (i < chunks.length - 1) {
+      await sleep(300); // 연속 호출로 인한 요청 제한(Rate limit) 방지
+    }
   }
 
   const productOrderIds = [...productOrderIdSet];

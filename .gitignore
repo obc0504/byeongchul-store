@@ -2,3 +2,4 @@ node_modules/
 .env
 # 주문 원본/CSV에는 고객 개인정보(이름/전화번호/주소)가 포함되므로 전체 제외
 output/
+logs/

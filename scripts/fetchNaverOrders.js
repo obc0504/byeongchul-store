@@ -3,8 +3,19 @@ const path = require('path');
 const fs = require('fs');
 const { getChangedProductOrderIds, getProductOrderDetails } = require('../src/naver/orders');
 
-function isoNoMillis(date) {
-  return date.toISOString().split('.')[0] + '+09:00';
+function toKstIso(date) {
+  // Date는 내부적으로 UTC 기준이라, KST 벽시계 값을 만들기 위해 9시간을 더한 뒤
+  // UTC getter로 읽어내는 방식으로 변환한다 (그냥 'Z'를 '+09:00'으로 바꾸면 9시간 오차 발생).
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  const yyyy = kst.getUTCFullYear();
+  const MM = pad(kst.getUTCMonth() + 1);
+  const dd = pad(kst.getUTCDate());
+  const HH = pad(kst.getUTCHours());
+  const mm = pad(kst.getUTCMinutes());
+  const ss = pad(kst.getUTCSeconds());
+  const SSS = pad(kst.getUTCMilliseconds(), 3);
+  return `${yyyy}-${MM}-${dd}T${HH}:${mm}:${ss}.${SSS}+09:00`;
 }
 
 async function main() {
@@ -14,8 +25,8 @@ async function main() {
   console.log(`조회 범위: ${from.toISOString()} ~ ${to.toISOString()}`);
 
   const changed = await getChangedProductOrderIds({
-    from: isoNoMillis(from),
-    to: isoNoMillis(to),
+    from: toKstIso(from),
+    to: toKstIso(to),
   });
 
   const productOrderIds = (changed.data?.lastChangeStatuses || []).map(

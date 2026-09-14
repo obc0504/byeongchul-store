@@ -2,6 +2,8 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const { getChangedProductOrderIds, getProductOrderDetails } = require('../src/naver/orders');
+const { mapOrdersToRows, CSV_COLUMNS } = require('../src/naver/mapOrdersToRows');
+const { writeCsv } = require('../src/lib/csv');
 
 function toKstIso(date) {
   // Date는 내부적으로 UTC 기준이라, KST 벽시계 값을 만들기 위해 9시간을 더한 뒤
@@ -48,7 +50,12 @@ async function main() {
   fs.writeFileSync(rawPath, JSON.stringify(details, null, 2), 'utf-8');
 
   console.log(`원본 응답 저장 완료: ${rawPath}`);
-  console.log('이 JSON의 실제 필드 구조를 확인한 뒤 CSV 변환 로직을 다음 단계로 추가합니다.');
+
+  const rows = mapOrdersToRows(details);
+  const csvPath = path.join(outDir, `naver-orders-${Date.now()}.csv`);
+  writeCsv(csvPath, rows, CSV_COLUMNS);
+
+  console.log(`CSV 저장 완료: ${csvPath} (${rows.length}건)`);
 }
 
 main().catch((err) => {
